@@ -79,10 +79,9 @@ def gui(stdscr):
 	notif_w = 40
 	notif_h = 7
 	notif = curses.newwin(notif_h, notif_w, 0, 0)
-	notif_text = ""
+	curses.curs_set(0)
 	while True:
 		stdscr.clear()
-		curses.curs_set(0)
 		
 		height, width = stdscr.getmaxyx()
 
@@ -96,8 +95,6 @@ def gui(stdscr):
 			stdscr.addstr(2 + n, f["i"] * 2, f["x"], (curses.A_UNDERLINE if n == s else curses.A_NORMAL))
 		
 		stdscr.refresh()
-		if notif_text:
-			draw_notif(notif_text, notif, notif_w, notif_h)
 		
 		k = stdscr.getch()
 		if k == 27 or k == ord("q"):
@@ -110,13 +107,35 @@ def gui(stdscr):
 			s -= 1
 			if s <= 0:
 				s = 0
-#		elif k == 127:
-#			if r[s]["fn"] in files:
-#				del files[r[s]["fn"]]
-#		elif k == curses.KEY_F2:
-#			if r[s]["fn"] in files:
-#				files[]
-		
+		elif k == 127:
+			draw_notif("Ya sure? y/N", notif, notif_w, notif_h)
+			if stdscr.getch() == ord("y"):
+				if r[s]["fn"] in files:
+					del files[r[s]["fn"]]
+					r = rec()
+					l = len(r)
+					if s >= l:
+						s = l - 1
+					if s <= 0:
+						s = 0
+		elif k == curses.KEY_F2:
+			oname = r[s]["x"]
+			fname = r[s]["fn"]
+			name = take_input(stdscr, r[s]["i"] * 2, 2 + s, len(r[s]["x"]), oname)
+			if (not name == oname) and name != "":
+				fname_p = pathlib.Path(fname)
+				if fname in files:
+					files[str(fname_p.parent / name)] = files[fname]
+					del files[fname]
+				else:
+					rname = {}
+					for f in files:
+						if f.startswith(fname):
+							fp = pathlib.Path(f)
+							rname[f] = str(fname_p.parent / name / fp.relative_to(fname_p))
+					for f in rname:
+						files[rname[f]] = files[f]
+						del files[f]
 
 def draw_notif(m, f, fw, fh):
 	if len(m) >= fw - 3:
@@ -124,6 +143,38 @@ def draw_notif(m, f, fw, fh):
 	f.addstr(fh // 2, 1 + (fw // 2) - (len(m) // 2) - 1, m)
 	rectangle(f, 0, 0, fh - 1, fw - 2)
 	f.refresh()
+
+def take_input(stdscr, x, y, lclear, start_text):
+	curses.curs_set(1)
+	escdelay = curses.get_escdelay()
+	curses.set_escdelay(25)
+	stdscr.move(y, x)
+	for i in range(lclear):
+		stdscr.delch(y, x)
+	
+	k2 = None
+	text = start_text
+	
+	stdscr.addstr(text)
+	stdscr.refresh()
+	while (k2 := stdscr.getch()) != ord("\n"):
+		if k2 == 127:
+			if len(text) > 0:
+				text = text[:-1]
+				stdscr.delch(stdscr.getyx()[0], stdscr.getyx()[1] - 1)
+		elif k2 == 27:
+			text = start_text
+			break
+		else:
+			text += chr(k2)
+			try:
+				stdscr.echochar(chr(k2))
+			except OverflowError: #Really lazy solution, but it works well enough
+				text = text[:-1]
+	curses.curs_set(0)
+	curses.noecho()
+	curses.set_escdelay(escdelay)
+	return text
 
 def rec():
 	r = {}
