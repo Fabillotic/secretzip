@@ -11,6 +11,7 @@ from io import BytesIO
 
 import curses
 from curses import wrapper
+from curses.textpad import rectangle
 
 files = {}
 
@@ -75,18 +76,28 @@ def gui(stdscr):
 	
 	k = 0
 	s = 0
+	notif_w = 40
+	notif_h = 7
+	notif = curses.newwin(notif_h, notif_w, 0, 0)
+	notif_text = ""
 	while True:
 		stdscr.clear()
 		curses.curs_set(0)
 		
 		height, width = stdscr.getmaxyx()
+
+		notif.mvwin(height // 2 - (notif_h // 2), width // 2 - (notif_w // 2))
 		
 		stdscr.addstr(0, 0, "SecretZIP", curses.A_BOLD)
 		
 		r = rec()
 		
 		for n, f in enumerate(r):
-			stdscr.addstr(2 + n, f["i"] * 2, f["x"], curses.color_pair(1) | (curses.A_UNDERLINE if n == s else curses.A_NORMAL))
+			stdscr.addstr(2 + n, f["i"] * 2, f["x"], (curses.A_UNDERLINE if n == s else curses.A_NORMAL))
+		
+		stdscr.refresh()
+		if notif_text:
+			draw_notif(notif_text, notif, notif_w, notif_h)
 		
 		k = stdscr.getch()
 		if k == 27 or k == ord("q"):
@@ -99,8 +110,20 @@ def gui(stdscr):
 			s -= 1
 			if s <= 0:
 				s = 0
+#		elif k == 127:
+#			if r[s]["fn"] in files:
+#				del files[r[s]["fn"]]
+#		elif k == curses.KEY_F2:
+#			if r[s]["fn"] in files:
+#				files[]
 		
-		stdscr.refresh()
+
+def draw_notif(m, f, fw, fh):
+	if len(m) >= fw - 3:
+		return
+	f.addstr(fh // 2, 1 + (fw // 2) - (len(m) // 2) - 1, m)
+	rectangle(f, 0, 0, fh - 1, fw - 2)
+	f.refresh()
 
 def rec():
 	r = {}
