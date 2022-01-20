@@ -14,9 +14,11 @@ from curses import wrapper
 from curses.textpad import rectangle
 
 files = {}
+key = None
+fn = None
 
 def main():
-	global files
+	global files, key, fn
 	parser = argparse.ArgumentParser(description="Encrypt files with AES-GCM.")
 	parser.add_argument("file", type=pathlib.Path)
 	parser.add_argument("-n", "--new", dest="new", action="store_true", help="Create a new archive.")
@@ -63,11 +65,18 @@ def main():
 	for n in z.namelist():
 		files[n] = z.read(n)
 	z.close()
+	
+	nfiles = {}
+	for f in files:
+		nfiles["./" + f] = files[f]
+	files = nfiles
 
 	wrapper(gui)
 
+bfiles = {}
+
 def gui(stdscr):
-	global files
+	global files, bfiles
 	
 	stdscr.clear()
 	stdscr.refresh()
@@ -80,6 +89,9 @@ def gui(stdscr):
 	notif_h = 7
 	notif = curses.newwin(notif_h, notif_w, 0, 0)
 	curses.curs_set(0)
+	
+	copy = {}
+	
 	while True:
 		stdscr.clear()
 		
@@ -97,6 +109,13 @@ def gui(stdscr):
 		stdscr.refresh()
 		
 		k = stdscr.getch()
+		
+		if k == ord("u"):
+			if bfiles != dict():
+				files = bfiles.copy()
+		
+		bfiles = files.copy()
+		
 		if k == 27 or k == ord("q"):
 			break
 		elif k == curses.KEY_DOWN:
@@ -108,9 +127,9 @@ def gui(stdscr):
 			if s <= 0:
 				s = 0
 		elif k == 127:
-			draw_notif("Ya sure? y/N", notif, notif_w, notif_h)
-			if stdscr.getch() == ord("y"):
-				if r[s]["fn"] in files:
+			if r[s]["fn"] in files:
+				draw_notif("Ya sure? y/N", notif, notif_w, notif_h)
+				if stdscr.getch() == ord("y"):
 					del files[r[s]["fn"]]
 					r = rec()
 					l = len(r)
@@ -121,21 +140,51 @@ def gui(stdscr):
 		elif k == curses.KEY_F2:
 			oname = r[s]["x"]
 			fname = r[s]["fn"]
-			name = take_input(stdscr, r[s]["i"] * 2, 2 + s, len(r[s]["x"]), oname)
-			if (not name == oname) and name != "":
-				fname_p = pathlib.Path(fname)
-				if fname in files:
-					files[str(fname_p.parent / name)] = files[fname]
-					del files[fname]
-				else:
-					rname = {}
-					for f in files:
-						if f.startswith(fname):
-							fp = pathlib.Path(f)
-							rname[f] = str(fname_p.parent / name / fp.relative_to(fname_p))
-					for f in rname:
-						files[rname[f]] = files[f]
-						del files[f]
+			if fname != ".":
+				name = take_input(stdscr, r[s]["i"] * 2, 2 + s, len(r[s]["x"]), oname)
+				if (not name == oname) and name != "":
+					fname_p = pathlib.Path(fname)
+					if fname in files:
+						files["./" + str(fname_p.parent / name)] = files[fname]
+						del files[fname]
+					else:
+						rname = {}
+						for f in files:
+							if f.startswith(fname):
+								fp = pathlib.Path(f)
+								rname[f] = "./" + str(fname_p.parent / name / fp.relative_to(fname_p))
+						for f in rname:
+							files[rname[f]] = files[f]
+							del files[f]
+		elif k == ord("c"):
+			if r[s]["fn"] in files:
+				copy = {r[s]["x"]: files[r[s]["fn"]]}
+			else:
+				copy = {}
+				for f in files:
+					if f.startswith(r[s]["fn"]):
+						copy[str(pathlib.Path(f).relative_to(pathlib.Path(r[s]["fn"]).parent))] = files[f]
+		elif k == ord("p"):
+			if not r[s]["fn"] in files:
+				for c in copy:
+					files["./" + str(pathlib.Path(r[s]["fn"]) / c)] = copy[c]
+		elif k == ord("w"):
+			d = BytesIO()
+			z = ZipFile(d, mode="w")
+			for f in files:
+				z.writestr(f[2:], files[f])
+			z.close()
+			
+			d.seek(0)
+			d = d.read()
+			
+			d = encrypt(key, d)
+			
+			f = open(fn, "wb")
+			f.write(d)
+			f.close()
+			draw_notif("Wrote to file.", notif, notif_w, notif_h)
+			stdscr.getch()
 
 def draw_notif(m, f, fw, fh):
 	if len(m) >= fw - 3:
