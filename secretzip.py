@@ -286,6 +286,7 @@ def draw_notif_input(m, f, fw, fh, start_text):
 	k2 = None
 	text = ""
 	
+	f.clear()
 	f.addstr(fh // 2, 1 + (fw // 2) - (len(m) // 2) - 1, m)
 	rectangle(f, 0, 0, fh - 1, fw - 2)
 	f.refresh()
