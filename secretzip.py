@@ -8,6 +8,10 @@ import argparse
 from zipfile import ZipFile
 from zipfile import Path as ZPath
 from io import BytesIO
+from tempfile import NamedTemporaryFile
+
+import subprocess
+import re
 
 import curses
 from curses import wrapper
@@ -17,8 +21,10 @@ files = {}
 key = None
 fn = None
 
+reinit = True
+
 def main():
-	global files, key, fn
+	global files, key, fn, reinit
 	parser = argparse.ArgumentParser(description="Encrypt files with AES-GCM.")
 	parser.add_argument("file", type=pathlib.Path)
 	parser.add_argument("-n", "--new", dest="new", action="store_true", help="Create a new archive.")
@@ -71,18 +77,18 @@ def main():
 		nfiles["./" + f] = files[f]
 	files = nfiles
 
-	wrapper(gui)
+	while reinit:
+		reinit = False
+		wrapper(gui)
 
-bfiles = {}
+changes = False
 
 def gui(stdscr):
-	global files, bfiles
+	global files, reinit, changes
 	
 	stdscr.clear()
 	stdscr.refresh()
 
-	curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
-	
 	k = 0
 	s = 0
 	notif_w = 40
@@ -110,14 +116,20 @@ def gui(stdscr):
 		
 		k = stdscr.getch()
 		
-		if k == ord("u"):
-			if bfiles != dict():
-				files = bfiles.copy()
-		
-		bfiles = files.copy()
-		
 		if k == 27 or k == ord("q"):
-			break
+			if changes:
+				draw_notif("(w)rite/(r)evert/(C)ancel", notif, notif_w, notif_h)
+				k2 = stdscr.getch()
+				if k2 == ord("w"):
+					changes = False
+					save()
+					break
+				elif k2 == ord("r"):
+					break
+				else:
+					pass
+			else:
+				break
 		elif k == curses.KEY_DOWN:
 			s += 1
 			if s >= len(r):
@@ -126,18 +138,35 @@ def gui(stdscr):
 			s -= 1
 			if s <= 0:
 				s = 0
-		elif k == 127:
+		elif k == 127 or k == ord("d"):
 			if r[s]["fn"] in files:
-				draw_notif("Ya sure? y/N", notif, notif_w, notif_h)
+				draw_notif(f'Delete file "{r[s]["x"]}" y/N', notif, notif_w, notif_h)
 				if stdscr.getch() == ord("y"):
 					del files[r[s]["fn"]]
+					changes = True
 					r = rec()
 					l = len(r)
 					if s >= l:
 						s = l - 1
 					if s <= 0:
 						s = 0
-		elif k == curses.KEY_F2:
+			else:
+				draw_notif(f'Delete ENTIRE folder "{r[s]["x"]}" y/N', notif, notif_w, notif_h)
+				if stdscr.getch() == ord("y"):
+					d = []
+					for f in files:
+						if f.startswith(r[s]["fn"]):
+							d.append(f)
+					for f in d:
+						del files[f]
+					changes = True
+					r = rec()
+					l = len(r)
+					if s >= l:
+						s = l - 1
+					if s <= 0:
+						s = 0
+		elif k == curses.KEY_F2 or k == ord("r"):
 			oname = r[s]["x"]
 			fname = r[s]["fn"]
 			if fname != ".":
@@ -147,6 +176,7 @@ def gui(stdscr):
 					if fname in files:
 						files["./" + str(fname_p.parent / name)] = files[fname]
 						del files[fname]
+						changes = True
 					else:
 						rname = {}
 						for f in files:
@@ -156,6 +186,12 @@ def gui(stdscr):
 						for f in rname:
 							files[rname[f]] = files[f]
 							del files[f]
+							changes = True
+		elif k == ord("n"):
+			if not r[s]["fn"] in files:
+				name = draw_notif_input("File name:", notif, notif_w, notif_h, "")
+				files["./" + str(pathlib.Path(r[s]["fn"]) / name)] = b"Test"
+				changes = True
 		elif k == ord("c"):
 			if r[s]["fn"] in files:
 				copy = {r[s]["x"]: files[r[s]["fn"]]}
@@ -168,30 +204,95 @@ def gui(stdscr):
 			if not r[s]["fn"] in files:
 				for c in copy:
 					files["./" + str(pathlib.Path(r[s]["fn"]) / c)] = copy[c]
+				if len(copy) > 0:
+					changes = True
 		elif k == ord("w"):
-			d = BytesIO()
-			z = ZipFile(d, mode="w")
-			for f in files:
-				z.writestr(f[2:], files[f])
-			z.close()
-			
-			d.seek(0)
-			d = d.read()
-			
-			d = encrypt(key, d)
-			
-			f = open(fn, "wb")
-			f.write(d)
-			f.close()
+			save()
 			draw_notif("Wrote to file.", notif, notif_w, notif_h)
+			changes = False
 			stdscr.getch()
+		elif k == ord("v"):
+			if r[s]["fn"] in files:
+				reinit = True
+				h = hash(files[r[s]["fn"]])
+				if write_file(r[s]["fn"]) != h:
+					changes = True
+				break
+
+def save():
+	d = BytesIO()
+	z = ZipFile(d, mode="w")
+	for f in files:
+		z.writestr(f[2:], files[f])
+	z.close()
+	
+	d.seek(0)
+	d = d.read()
+	
+	d = encrypt(key, d)
+	
+	f = open(fn, "wb")
+	f.write(d)
+	f.close()
+
+def write_file(f):
+	d = None
+	with NamedTemporaryFile() as tmp:
+		tmp.write(files[f])
+		tmp.flush()
+		subprocess.run(["nano", tmp.name])
+		tmp.seek(0)
+		d = tmp.read()
+		files[f] = d
+	return hash(d) if d else None
 
 def draw_notif(m, f, fw, fh):
 	if len(m) >= fw - 3:
 		return
+	f.clear()
 	f.addstr(fh // 2, 1 + (fw // 2) - (len(m) // 2) - 1, m)
 	rectangle(f, 0, 0, fh - 1, fw - 2)
 	f.refresh()
+
+def draw_notif_input(m, f, fw, fh, start_text):
+	if len(m) >= fw - 3:
+		return
+
+	x = 1 + (fw // 2) - (len(m) // 2) - 1
+	y = fh // 2 + 1
+	
+	curses.curs_set(1)
+	escdelay = curses.get_escdelay()
+	curses.set_escdelay(25)
+	
+	k2 = None
+	text = ""
+	
+	f.addstr(fh // 2, 1 + (fw // 2) - (len(m) // 2) - 1, m)
+	rectangle(f, 0, 0, fh - 1, fw - 2)
+	f.refresh()
+	f.move(y, x)
+	
+	while (k2 := f.getch()) != ord("\n"):
+		if k2 == 127:
+			if len(text) > 0:
+				text = text[:-1]
+		elif k2 == 27:
+			text = ""
+			break
+		else:
+			text += chr(k2)
+			if not re.match(r"[a-z0-9_.]+", text):
+				text = text[:-1]
+		f.clear()
+		f.addstr(fh // 2, 1 + (fw // 2) - (len(m) // 2) - 1, m)
+		rectangle(f, 0, 0, fh - 1, fw - 2)
+		f.addstr(y, x, text)
+		f.refresh()
+	curses.curs_set(0)
+	curses.noecho()
+	curses.set_escdelay(escdelay)
+	return text
 
 def take_input(stdscr, x, y, lclear, start_text):
 	curses.curs_set(1)
