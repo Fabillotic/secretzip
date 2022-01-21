@@ -23,6 +23,8 @@ fn = None
 
 reinit = True
 
+draw_help = False
+
 def main():
 	global files, key, fn, reinit
 	parser = argparse.ArgumentParser(description="Encrypt files with AES-GCM.")
@@ -102,7 +104,7 @@ def main():
 changes = False
 
 def gui(stdscr):
-	global files, reinit, changes
+	global files, reinit, changes, draw_help
 	
 	stdscr.clear()
 	stdscr.refresh()
@@ -124,6 +126,25 @@ def gui(stdscr):
 		notif.mvwin(height // 2 - (notif_h // 2), width // 2 - (notif_w // 2))
 		
 		stdscr.addstr(0, 0, "SecretZIP", curses.A_BOLD)
+		
+		def draw_helpstr(s, y=0):
+			stdscr.addstr(height - 1 - y, width - len(s) - 1, s)
+		
+		if not draw_help:
+			draw_helpstr("Press 'h' for help!")
+		else:
+			helpstrs = [
+			"Press 'h' to hide this screen!",
+			"Press 'q' or ESC to quit!",
+			"Press the arrow up and down keys to navigate!",
+			"Press 'd' to delete a file or a folder!",
+			"Press 'n' to create a new file!",
+			"Press 'c' to copy a file or folder!",
+			"Press 'p' to paste!",
+			"Press 'v' to edit a file!"
+			]
+			for n, h in enumerate(helpstrs):
+				draw_helpstr(h, len(helpstrs) - 1 - n)
 		
 		r = rec()
 		
@@ -156,6 +177,8 @@ def gui(stdscr):
 			s -= 1
 			if s <= 0:
 				s = 0
+		elif k == ord("h"):
+			draw_help = not draw_help
 		elif k == 127 or k == ord("d"):
 			if r[s]["fn"] in files:
 				draw_notif(f'Delete file "{r[s]["x"]}" y/N', notif, notif_w, notif_h)
