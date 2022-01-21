@@ -28,15 +28,12 @@ def main():
 	parser = argparse.ArgumentParser(description="Encrypt files with AES-GCM.")
 	parser.add_argument("file", type=pathlib.Path)
 	parser.add_argument("-n", "--new", dest="new", action="store_true", help="Create a new archive.")
+	parser.add_argument("-t", "--test", dest="test", action="store_true", help="Create a new test archive with password 'lol'")
 	
 	args = vars(parser.parse_args())
 	fn = args.get("file").absolute()
-	nmode = args.get("new")
 	
-	pwd = getpass().encode("utf-8")
-	key = SHA3_256.new(pwd).digest()
-
-	if nmode:
+	if args.get("test"):
 		d = BytesIO()
 		z = ZipFile(d, mode="w")
 		z.writestr("one/two/test.txt", b"Hello, world!")
@@ -47,7 +44,28 @@ def main():
 		
 		d.seek(0)
 		d = d.read()
-
+		
+		d = encrypt(SHA3_256.new(b"lol").digest(), d)
+		
+		f = open(fn, "wb")
+		f.write(d)
+		f.close()
+		return
+	
+	pwd = getpass().encode("utf-8")
+	key = SHA3_256.new(pwd).digest()
+	
+	if args.get("new"):
+		if getpass(prompt="Retype: ").encode("utf-8") != pwd:
+			print("Passwords don't match!")
+			return
+		d = BytesIO()
+		z = ZipFile(d, mode="w")
+		z.close()
+		
+		d.seek(0)
+		d = d.read()
+		
 		d = encrypt(key, d)
 		
 		f = open(fn, "wb")
@@ -190,7 +208,7 @@ def gui(stdscr):
 		elif k == ord("n"):
 			if not r[s]["fn"] in files:
 				name = draw_notif_input("File name:", notif, notif_w, notif_h, "")
-				files["./" + str(pathlib.Path(r[s]["fn"]) / name)] = b"Test"
+				files["./" + str(pathlib.Path(r[s]["fn"][2:]) / name)] = b""
 				changes = True
 		elif k == ord("c"):
 			if r[s]["fn"] in files:
@@ -353,6 +371,8 @@ def rec():
 			l.append({"i": i, "x": x, "fn": y[1:]}) #indent, number, name, full name
 			it(d[x], i+1, y)
 	it(r, 0, "")
+	if len(l) == 0:
+		l.append({"i": 0, "x": ".", "fn": "."})
 	return l
 
 def encrypt(key, d):
