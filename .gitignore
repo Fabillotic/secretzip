@@ -1,2 +1,6 @@
 *.swp
 *.secret
+__pycache__
+build
+dist
+*.spec
